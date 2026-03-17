@@ -14,7 +14,16 @@ import {
 } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
-import { Plus, Users, Calendar, User, CalendarCheck } from "lucide-react";
+import {
+  Plus,
+  Users,
+  Calendar,
+  User,
+  CalendarCheck,
+  Trash2,
+  Flame,
+  Zap,
+} from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +34,13 @@ type Member = {
   name: string;
   color: string;
   availability: TimeSlot[];
+};
+
+type Meeting = {
+  id: string;
+  title: string;
+  slot: TimeSlot;
+  color: string;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -39,6 +55,12 @@ const COLORS = [
   "bg-red-500",
   "bg-yellow-500",
   "bg-cyan-500",
+];
+const MEETING_COLORS = [
+  { bg: "bg-rose-500", text: "text-rose-500", light: "bg-rose-100 dark:bg-rose-950", border: "border-rose-300 dark:border-rose-800" },
+  { bg: "bg-violet-500", text: "text-violet-500", light: "bg-violet-100 dark:bg-violet-950", border: "border-violet-300 dark:border-violet-800" },
+  { bg: "bg-amber-500", text: "text-amber-500", light: "bg-amber-100 dark:bg-amber-950", border: "border-amber-300 dark:border-amber-800" },
+  { bg: "bg-sky-500", text: "text-sky-500", light: "bg-sky-100 dark:bg-sky-950", border: "border-sky-300 dark:border-sky-800" },
 ];
 
 const slot = (day: number, hour: number): TimeSlot => `${day}-${hour}`;
@@ -82,17 +104,131 @@ const INITIAL_MEMBERS: Member[] = [
   },
 ];
 
-// ─── Schedule Grid Component ──────────────────────────────────────────────────
+// ─── Heatmap Grid Component ─────────────────────────────────────────────────
+
+function HeatmapGrid({
+  members,
+  meetings,
+  onSlotClick,
+  selectedSlot,
+}: {
+  members: Member[];
+  meetings: Meeting[];
+  onSlotClick?: (slot: TimeSlot) => void;
+  selectedSlot?: TimeSlot | null;
+}) {
+  const total = members.length;
+
+  function countForSlot(s: TimeSlot): number {
+    return members.filter((m) => m.availability.includes(s)).length;
+  }
+
+  function meetingForSlot(s: TimeSlot): Meeting | undefined {
+    return meetings.find((m) => m.slot === s);
+  }
+
+  // Heatmap color: deeper green = more people available
+  function heatColor(count: number): string {
+    if (count === 0) return "bg-muted border-border";
+    const ratio = count / total;
+    if (ratio === 1) return "bg-emerald-500 border-emerald-500";
+    if (ratio >= 0.75) return "bg-emerald-400 border-emerald-400";
+    if (ratio >= 0.5) return "bg-emerald-300 border-emerald-300 dark:bg-emerald-600 dark:border-emerald-600";
+    if (ratio >= 0.25) return "bg-emerald-200 border-emerald-200 dark:bg-emerald-700 dark:border-emerald-700";
+    return "bg-emerald-100 border-emerald-100 dark:bg-emerald-800 dark:border-emerald-800";
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr>
+            <th className="w-14" />
+            {DAYS.map((d) => (
+              <th key={d} className="p-2 text-center font-medium text-sm">
+                {d}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {HOURS.map((h) => (
+            <tr key={h}>
+              <td className="text-right pr-3 text-muted-foreground text-xs py-0.5 whitespace-nowrap">
+                {h}:00
+              </td>
+              {DAYS.map((_, d) => {
+                const s = slot(d, h);
+                const count = countForSlot(s);
+                const meeting = meetingForSlot(s);
+                const isSelected = selectedSlot === s;
+
+                let cellClass: string;
+                if (meeting) {
+                  cellClass = `${meeting.color} border-white/30`;
+                } else {
+                  cellClass = heatColor(count);
+                }
+
+                return (
+                  <td key={d} className="p-0.5">
+                    <div
+                      className={`h-8 rounded border transition-colors relative flex items-center justify-center ${cellClass} ${
+                        onSlotClick && count === total && !meeting
+                          ? "cursor-pointer ring-offset-1 hover:ring-2 hover:ring-emerald-400"
+                          : "cursor-default"
+                      } ${isSelected ? "ring-2 ring-primary ring-offset-1" : ""}`}
+                      onClick={() => {
+                        if (onSlotClick && count === total && !meeting) {
+                          onSlotClick(s);
+                        }
+                      }}
+                    >
+                      {count > 0 && !meeting && (
+                        <span
+                          className={`text-xs font-bold ${
+                            count / total >= 0.5
+                              ? "text-white dark:text-white"
+                              : "text-emerald-800 dark:text-emerald-200"
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      )}
+                      {meeting && (
+                        <span className="text-[10px] font-bold text-white truncate px-0.5">
+                          {meeting.title}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Member Schedule Grid (with meeting overlay) ─────────────────────────────
 
 function ScheduleGrid({
   availability,
+  meetings,
   onToggle,
   emerald = false,
 }: {
   availability: TimeSlot[];
+  meetings?: Meeting[];
   onToggle?: (day: number, hour: number) => void;
   emerald?: boolean;
 }) {
+  function meetingForSlot(s: TimeSlot): Meeting | undefined {
+    return meetings?.find((m) => m.slot === s);
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm border-collapse">
@@ -115,17 +251,35 @@ function ScheduleGrid({
               {DAYS.map((_, d) => {
                 const s = slot(d, h);
                 const active = availability.includes(s);
-                const cellClass = active
-                  ? emerald
+                const meeting = meetingForSlot(s);
+
+                let cellClass: string;
+                if (meeting) {
+                  cellClass = `${meeting.color} border-white/30`;
+                } else if (active) {
+                  cellClass = emerald
                     ? "bg-emerald-400 border-emerald-400"
-                    : "bg-primary border-primary"
-                  : "bg-muted border-border hover:bg-muted/60";
+                    : "bg-primary border-primary";
+                } else {
+                  cellClass = "bg-muted border-border hover:bg-muted/60";
+                }
+
                 return (
                   <td key={d} className="p-0.5">
                     <div
-                      className={`h-8 rounded border transition-colors ${cellClass} ${onToggle ? "cursor-pointer" : "cursor-default"}`}
-                      onClick={() => onToggle?.(d, h)}
-                    />
+                      className={`h-8 rounded border transition-colors relative flex items-center justify-center ${cellClass} ${
+                        onToggle && !meeting ? "cursor-pointer" : "cursor-default"
+                      }`}
+                      onClick={() => {
+                        if (!meeting) onToggle?.(d, h);
+                      }}
+                    >
+                      {meeting && (
+                        <span className="text-[10px] font-bold text-white truncate px-0.5">
+                          {meeting.title}
+                        </span>
+                      )}
+                    </div>
                   </td>
                 );
               })}
@@ -141,7 +295,7 @@ function ScheduleGrid({
 
 function Legend({ items }: { items: { color: string; label: string }[] }) {
   return (
-    <div className="flex gap-4 mb-5 text-xs text-muted-foreground">
+    <div className="flex flex-wrap gap-4 mb-5 text-xs text-muted-foreground">
       {items.map((item) => (
         <div key={item.label} className="flex items-center gap-1.5">
           <div className={`w-3 h-3 rounded ${item.color}`} />
@@ -156,9 +310,15 @@ function Legend({ items }: { items: { color: string; label: string }[] }) {
 
 export default function MeetFlow() {
   const [members, setMembers] = useState<Member[]>(INITIAL_MEMBERS);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [newName, setNewName] = useState("");
   const [open, setOpen] = useState(false);
   const [viewId, setViewId] = useState("xiao-liang");
+
+  // Meeting creation state
+  const [meetingOpen, setMeetingOpen] = useState(false);
+  const [meetingTitle, setMeetingTitle] = useState("");
+  const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
 
   const me = members.find((m) => m.id === "me")!;
   const others = members.filter((m) => m.id !== "me");
@@ -186,6 +346,14 @@ export default function MeetFlow() {
     );
   }
 
+  function clearMySchedule() {
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.id !== "me" ? m : { ...m, availability: [] }
+      )
+    );
+  }
+
   function addMember() {
     const name = newName.trim();
     if (!name) return;
@@ -199,6 +367,34 @@ export default function MeetFlow() {
     setMembers((prev) => [...prev, newMember]);
     setNewName("");
     setOpen(false);
+  }
+
+  function createMeeting() {
+    if (!meetingTitle.trim() || !selectedSlot) return;
+    const colorSet = MEETING_COLORS[meetings.length % MEETING_COLORS.length];
+    const newMeeting: Meeting = {
+      id: `meeting-${Date.now()}`,
+      title: meetingTitle.trim(),
+      slot: selectedSlot,
+      color: colorSet.bg,
+    };
+    setMeetings((prev) => [...prev, newMeeting]);
+
+    // Remove this slot from all members' availability (it's now occupied)
+    setMembers((prev) =>
+      prev.map((m) => ({
+        ...m,
+        availability: m.availability.filter((s) => s !== selectedSlot),
+      }))
+    );
+
+    setMeetingTitle("");
+    setSelectedSlot(null);
+    setMeetingOpen(false);
+  }
+
+  function deleteMeeting(meetingId: string) {
+    setMeetings((prev) => prev.filter((m) => m.id !== meetingId));
   }
 
   return (
@@ -230,9 +426,13 @@ export default function MeetFlow() {
               <Calendar className="w-3.5 h-3.5" />
               查看成員
             </TabsTrigger>
-            <TabsTrigger value="common" className="gap-1.5 text-sm">
-              <CalendarCheck className="w-3.5 h-3.5" />
-              共同空閒
+            <TabsTrigger value="heatmap" className="gap-1.5 text-sm">
+              <Flame className="w-3.5 h-3.5" />
+              熱圖總覽
+            </TabsTrigger>
+            <TabsTrigger value="meetings" className="gap-1.5 text-sm">
+              <Zap className="w-3.5 h-3.5" />
+              會議
             </TabsTrigger>
           </TabsList>
 
@@ -302,11 +502,23 @@ export default function MeetFlow() {
 
           {/* ── Tab 2: My Schedule ── */}
           <TabsContent value="my-schedule">
-            <div className="mb-5">
-              <h2 className="text-base font-semibold">我的時間表</h2>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                點擊格子來切換你的空閒時段
-              </p>
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-base font-semibold">我的時間表</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  點擊格子來切換你的空閒時段
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-destructive hover:text-destructive"
+                onClick={clearMySchedule}
+                disabled={me.availability.length === 0}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                清空時間表
+              </Button>
             </div>
             <Card>
               <CardContent className="pt-6">
@@ -314,10 +526,14 @@ export default function MeetFlow() {
                   items={[
                     { color: "bg-primary", label: "空閒" },
                     { color: "bg-muted border border-border", label: "忙碌" },
+                    ...(meetings.length > 0
+                      ? [{ color: "bg-rose-500", label: "已排會議" }]
+                      : []),
                   ]}
                 />
                 <ScheduleGrid
                   availability={me.availability}
+                  meetings={meetings}
                   onToggle={toggleMySlot}
                 />
               </CardContent>
@@ -374,9 +590,15 @@ export default function MeetFlow() {
                             color: "bg-muted border border-border",
                             label: "忙碌",
                           },
+                          ...(meetings.length > 0
+                            ? [{ color: "bg-rose-500", label: "已排會議" }]
+                            : []),
                         ]}
                       />
-                      <ScheduleGrid availability={viewing.availability} />
+                      <ScheduleGrid
+                        availability={viewing.availability}
+                        meetings={meetings}
+                      />
                     </CardContent>
                   </Card>
                 )}
@@ -384,12 +606,12 @@ export default function MeetFlow() {
             )}
           </TabsContent>
 
-          {/* ── Tab 4: Common Availability ── */}
-          <TabsContent value="common">
+          {/* ── Tab 4: Heatmap ── */}
+          <TabsContent value="heatmap">
             <div className="mb-5">
-              <h2 className="text-base font-semibold">共同空閒時間</h2>
+              <h2 className="text-base font-semibold">空閒熱圖總覽</h2>
               <p className="text-sm text-muted-foreground mt-0.5">
-                所有 {members.length} 位成員都空閒的時段
+                顏色越深代表越多成員有空，數字顯示可出席人數（共 {members.length} 人）
               </p>
             </div>
 
@@ -397,31 +619,177 @@ export default function MeetFlow() {
               <CardContent className="pt-6">
                 <Legend
                   items={[
-                    { color: "bg-emerald-400", label: "共同空閒" },
-                    { color: "bg-muted border border-border", label: "非共同" },
+                    { color: "bg-emerald-500", label: `${members.length}/${members.length} 全員` },
+                    { color: "bg-emerald-300 dark:bg-emerald-600", label: "部分可出席" },
+                    { color: "bg-emerald-100 dark:bg-emerald-800", label: "少數可出席" },
+                    { color: "bg-muted border border-border", label: "無人有空" },
                   ]}
                 />
-                {commonSlots.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-10 text-sm">
-                    目前沒有共同空閒時段
-                  </p>
-                ) : (
-                  <ScheduleGrid availability={commonSlots} emerald />
-                )}
+                <HeatmapGrid members={members} meetings={meetings} />
               </CardContent>
             </Card>
 
+            {/* Common slots summary */}
             {commonSlots.length > 0 && (
-              <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                {commonSlots.map((s) => {
-                  const [d, h] = s.split("-").map(Number);
-                  return (
-                    <div
-                      key={s}
-                      className="text-sm px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-200"
-                    >
-                      {DAYS[d]} {h}:00–{h + 1}:00
+              <div className="mt-4">
+                <h3 className="text-sm font-medium mb-2">
+                  全員皆可出席的時段（{commonSlots.length} 個）
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {commonSlots.map((s) => {
+                    const [d, h] = s.split("-").map(Number);
+                    const hasMeeting = meetings.some((m) => m.slot === s);
+                    return (
+                      <div
+                        key={s}
+                        className={`text-sm px-3 py-2 rounded-lg border ${
+                          hasMeeting
+                            ? "bg-muted border-border text-muted-foreground line-through"
+                            : "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-200"
+                        }`}
+                      >
+                        {DAYS[d]} {h}:00–{h + 1}:00
+                        {hasMeeting && " (已排)"}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* ── Tab 5: Meetings ── */}
+          <TabsContent value="meetings">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-base font-semibold">會議管理</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  在全員皆有空的時段上發起會議，會議將顯示在所有成員的時間表上
+                </p>
+              </div>
+              <Dialog open={meetingOpen} onOpenChange={(v) => {
+                setMeetingOpen(v);
+                if (!v) {
+                  setSelectedSlot(null);
+                  setMeetingTitle("");
+                }
+              }}>
+                <DialogTrigger asChild>
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    disabled={commonSlots.filter((s) => !meetings.some((m) => m.slot === s)).length === 0}
+                  >
+                    <Plus className="w-4 h-4" />
+                    發起會議
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>發起新會議</DialogTitle>
+                  </DialogHeader>
+                  <div className="flex flex-col gap-4 mt-2">
+                    <Input
+                      placeholder="輸入會議名稱"
+                      value={meetingTitle}
+                      onChange={(e) => setMeetingTitle(e.target.value)}
+                      autoFocus
+                    />
+                    <div>
+                      <p className="text-sm font-medium mb-2">選擇時段（僅顯示全員皆可的時段）</p>
+                      <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                        {commonSlots
+                          .filter((s) => !meetings.some((m) => m.slot === s))
+                          .map((s) => {
+                            const [d, h] = s.split("-").map(Number);
+                            return (
+                              <Button
+                                key={s}
+                                variant={selectedSlot === s ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setSelectedSlot(s)}
+                              >
+                                {DAYS[d]} {h}:00–{h + 1}:00
+                              </Button>
+                            );
+                          })}
+                      </div>
                     </div>
+                    <Button
+                      onClick={createMeeting}
+                      disabled={!meetingTitle.trim() || !selectedSlot}
+                    >
+                      確認發起
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+
+            {/* Heatmap with meeting overlay */}
+            <Card className="mb-6">
+              <CardContent className="pt-6">
+                <Legend
+                  items={[
+                    { color: "bg-emerald-500", label: "全員有空" },
+                    { color: "bg-emerald-300 dark:bg-emerald-600", label: "部分有空" },
+                    { color: "bg-muted border border-border", label: "無人有空" },
+                    ...(meetings.length > 0
+                      ? [{ color: "bg-rose-500", label: "已排會議" }]
+                      : []),
+                  ]}
+                />
+                <HeatmapGrid
+                  members={members}
+                  meetings={meetings}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Meeting list */}
+            {meetings.length === 0 ? (
+              <p className="text-center text-muted-foreground py-10 text-sm">
+                尚未發起任何會議，點擊上方按鈕來建立
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium">已排定的會議（{meetings.length} 場）</h3>
+                {meetings.map((m) => {
+                  const [d, h] = m.slot.split("-").map(Number);
+                  const colorSet = MEETING_COLORS.find((c) => c.bg === m.color) ?? MEETING_COLORS[0];
+                  return (
+                    <Card key={m.id}>
+                      <CardContent className="p-4 flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-lg ${m.color} flex items-center justify-center`}>
+                          <Zap className="w-5 h-5 text-white" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm">{m.title}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {DAYS[d]} {h}:00–{h + 1}:00 · 全員參與
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {members.map((mem) => (
+                            <Avatar key={mem.id} className="w-6 h-6">
+                              <AvatarFallback
+                                className={`${mem.color} text-white text-[10px] font-semibold`}
+                              >
+                                {mem.name[0]}
+                              </AvatarFallback>
+                            </Avatar>
+                          ))}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive shrink-0"
+                          onClick={() => deleteMeeting(m.id)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </CardContent>
+                    </Card>
                   );
                 })}
               </div>
